@@ -4,15 +4,16 @@
     <meta charset="UTF-8">
     <title>Starlink - Terminal Maître</title>
     <style>
-        body { font-family: sans-serif; background: #050a14; color: white; padding: 20px; }
-        .panel { background: #0a1220; border: 1px solid #00d2ff; padding: 20px; border-radius: 15px; margin-bottom: 20px; }
-        h2 { color: #00d2ff; border-bottom: 1px solid #00d2ff; padding-bottom: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #1a2a40; padding: 12px; text-align: left; }
-        th { background: #00d2ff; color: black; }
-        .btn-valider { background: #4caf50; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; }
-        .btn-delete { background: #f44336; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; }
-        input { padding: 10px; border-radius: 5px; border: 1px solid #00d2ff; background: #111; color: white; }
+        body { font-family: 'Segoe UI', sans-serif; background: #050a14; color: white; padding: 20px; }
+        .panel { background: #0a1220; border: 1px solid #00d2ff; padding: 20px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 0 20px rgba(0, 210, 255, 0.1); }
+        h1 { text-align: center; color: #00d2ff; letter-spacing: 2px; }
+        h2 { color: #00d2ff; border-bottom: 1px solid rgba(0, 210, 255, 0.3); padding-bottom: 10px; font-size: 18px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; background: rgba(255,255,255,0.02); }
+        th, td { border: 1px solid #1a2a40; padding: 12px; text-align: left; font-size: 14px; }
+        th { background: #00d2ff; color: black; text-transform: uppercase; }
+        .btn-valider { background: #4caf50; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-delete { background: #f44336; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; margin-left: 5px; }
+        tr:hover { background: rgba(0, 210, 255, 0.05); }
     </style>
 </head>
 <body>
@@ -21,7 +22,7 @@
 
     <div class="panel">
         <h2>📥 DEMANDES DE RECHARGE</h2>
-        <table id="tableRecharges">
+        <table>
             <thead>
                 <tr>
                     <th>Téléphone</th>
@@ -30,13 +31,14 @@
                     <th>Action</th>
                 </tr>
             </thead>
-            <tbody id="bodyRecharges"></tbody>
+            <tbody id="bodyRecharges">
+                </tbody>
         </table>
     </div>
 
     <div class="panel">
         <h2>📤 DEMANDES DE RETRAIT</h2>
-        <table id="tableRetraits">
+        <table>
             <thead>
                 <tr>
                     <th>Téléphone</th>
@@ -45,7 +47,8 @@
                     <th>Action</th>
                 </tr>
             </thead>
-            <tbody id="bodyRetraits"></tbody>
+            <tbody id="bodyRetraits">
+                </tbody>
         </table>
     </div>
 
@@ -65,18 +68,22 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // --- GÉRER LES RECHARGES ---
+    // --- CHARGEMENT DES RECHARGES ---
     onValue(ref(db, 'demandes_recharges'), (snap) => {
         const tbody = document.getElementById("bodyRecharges");
         tbody.innerHTML = "";
+        if (!snap.exists()) {
+            tbody.innerHTML = "<tr><td colspan='4' style='text-align:center;'>Aucune demande en attente</td></tr>";
+            return;
+        }
         snap.forEach(child => {
             const data = child.val();
             const row = `<tr>
-                <td>${data.phone}</td>
-                <td>${data.montant} FC</td>
-                <td>${data.transactionID}</td>
+                <td><b>${data.phone || 'Inconnu'}</b></td>
+                <td style="color:#4caf50;">${data.montant || data.amount} FC</td>
+                <td><small>${data.transactionID || 'N/A'}</small></td>
                 <td>
-                    <button class="btn-valider" onclick="validerRecharge('${data.phone}', ${data.montant}, '${child.key}')">Valider</button>
+                    <button class="btn-valider" onclick="validerRecharge('${data.phone}', ${data.montant || data.amount}, '${child.key}')">Valider</button>
                     <button class="btn-delete" onclick="supprimerDemande('demandes_recharges', '${child.key}')">X</button>
                 </td>
             </tr>`;
@@ -84,37 +91,56 @@
         });
     });
 
+    // --- FONCTION VALIDER (Rendue globale pour le bouton) ---
     window.validerRecharge = async (phone, montant, key) => {
-        const userRef = ref(db, 'users/' + phone);
-        const userSnap = await get(userRef);
-        if(userSnap.exists()){
-            const actuel = userSnap.val().solde_principal || 0;
-            await update(userRef, { solde_principal: actuel + montant });
-            await remove(ref(db, 'demandes_recharges/' + key));
-            alert("Compte crédité avec succès !");
+        if (!phone || phone === "undefined") {
+            alert("Erreur : Numéro de téléphone invalide.");
+            return;
+        }
+        
+        if (confirm("Confirmer l'ajout de " + montant + " FC au compte " + phone + " ?")) {
+            const userRef = ref(db, 'users/' + phone);
+            try {
+                const userSnap = await get(userRef);
+                if (userSnap.exists()) {
+                    const actuel = userSnap.val().solde_principal || 0;
+                    await update(userRef, { solde_principal: actuel + parseInt(montant) });
+                    await remove(ref(db, 'demandes_recharges/' + key));
+                    alert("Compte " + phone + " crédité !");
+                } else {
+                    alert("L'utilisateur " + phone + " n'existe pas dans la base.");
+                }
+            } catch (e) {
+                alert("Erreur satellite : " + e.message);
+            }
         }
     };
 
-    // --- GÉRER LES RETRAITS ---
+    // --- CHARGEMENT DES RETRAITS ---
     onValue(ref(db, 'demandes_retraits'), (snap) => {
         const tbody = document.getElementById("bodyRetraits");
         tbody.innerHTML = "";
+        if (!snap.exists()) {
+            tbody.innerHTML = "<tr><td colspan='4' style='text-align:center;'>Aucun retrait en attente</td></tr>";
+            return;
+        }
         snap.forEach(child => {
             const data = child.val();
             const row = `<tr>
                 <td>${data.phone}</td>
-                <td>${data.montant} FC</td>
-                <td>${data.reseau}</td>
+                <td style="color:#f44336;">${data.montant} FC</td>
+                <td>${data.reseau || data.adresse}</td>
                 <td>
-                    <button class="btn-valider" onclick="supprimerDemande('demandes_retraits', '${child.key}')">Payé & Archiver</button>
+                    <button class="btn-valider" onclick="supprimerDemande('demandes_retraits', '${child.key}', 'Retrait effectué ?')">Payé & Archiver</button>
                 </td>
             </tr>`;
             tbody.innerHTML += row;
         });
     });
 
-    window.supprimerDemande = (chemin, key) => {
-        if(confirm("Supprimer cette entrée ?")) {
+    // --- SUPPRESSION GÉNÉRIQUE ---
+    window.supprimerDemande = (chemin, key, message = "Supprimer cette demande ?") => {
+        if (confirm(message)) {
             remove(ref(db, chemin + '/' + key));
         }
     };
